@@ -137,7 +137,6 @@ export default function StudyMenu({ words }) {
               {decks.map((deck) => {
                 const ids = new Set(deck.wordIds);
                 const deckWords = words.filter((w) => ids.has(w.id));
-                const due = getDueCards(deckWords);
                 return (
                   <Link
                     key={deck.id}
@@ -145,7 +144,7 @@ export default function StudyMenu({ words }) {
                     className="bg-slate-800 rounded-xl p-4 text-center hover:bg-slate-700 transition-colors"
                   >
                     <div className="text-2xl font-bold text-white mb-1">
-                      {due.length}
+                      {deckWords.length}
                     </div>
                     <div className="text-sm text-slate-400 truncate">
                       {deck.name}

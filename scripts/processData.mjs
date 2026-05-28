@@ -1,5 +1,6 @@
-import { writeFileSync, mkdirSync, existsSync, statSync } from 'fs';
+import { writeFileSync, readFileSync, mkdirSync, existsSync, statSync } from 'fs';
 import { gunzipSync } from 'zlib';
+import { execSync } from 'child_process';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -12,6 +13,9 @@ const JLPT_ALL_URL =
 
 const JMDICT_TGZ_URL =
   'https://github.com/scriptin/jmdict-simplified/releases/download/3.6.2%2B20260525143653/jmdict-eng-common-3.6.2%2B20260525143653.json.tgz';
+
+const TATOEBA_JPN_URL =
+  'https://downloads.tatoeba.org/exports/per_language/jpn/jpn_sentences.tsv.bz2';
 
 async function fetchJson(url) {
   console.log(`  Fetching: ${url}`);
@@ -106,6 +110,7 @@ function normalizeEntry(jmdictEntry, jlptLookup) {
   if (!match) return null;
 
   const glossText = sense[0]?.gloss?.[0]?.text || '';
+  const pos = sense[0]?.partOfSpeech?.[0] || '';
 
   return {
     id: String(id),
@@ -113,7 +118,85 @@ function normalizeEntry(jmdictEntry, jlptLookup) {
     reading: match.reading,
     meaning: glossText,
     jlptLevel: match.level,
+    pos,
   };
+}
+
+function bz2ToLines(buffer) {
+  const tmpBz2 = join(PROJECT_ROOT, '.tmp_jpn.bz2');
+  const tmpTsv = join(PROJECT_ROOT, '.tmp_jpn.tsv');
+  try {
+    writeFileSync(tmpBz2, buffer);
+    execSync(`bzip2 -d -c "${tmpBz2}" > "${tmpTsv}"`, { stdio: 'pipe' });
+    const data = readFileSync(tmpTsv, 'utf8');
+    return data.split('\n').filter(l => l.length > 0);
+  } finally {
+    try { execSync(`rm -f "${tmpBz2}" "${tmpTsv}"`); } catch {}
+  }
+}
+
+async function attachExamples(vocab) {
+  console.log('[4/4] Fetching example sentences from Tatoeba...');
+
+  // Build search terms from vocabulary (kanji and reading, >= 2 chars)
+  const termMap = new Map();
+  for (const w of vocab) {
+    const terms = [...new Set([w.kanji, w.reading].filter(Boolean))];
+    for (const t of terms) {
+      if (t.length >= 2) {
+        if (!termMap.has(t)) termMap.set(t, []);
+        termMap.get(t).push(w);
+      }
+    }
+  }
+
+  const allTerms = [...termMap.keys()].sort((a, b) => b.length - a.length);
+  const escaped = allTerms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const regex = new RegExp(escaped.join('|'), 'g');
+
+  // Download Japanese sentences
+  const jpnBuf = await fetchBuffer(TATOEBA_JPN_URL);
+  console.log('  Decompressing...');
+  const jpnLines = bz2ToLines(jpnBuf);
+  console.log(`  Loaded ${jpnLines.length} Japanese sentences`);
+
+  // Match sentences to vocabulary (up to 2 examples per word)
+  const targetCount = 2;
+  const examplesPerWord = new Map();
+
+  for (const line of jpnLines) {
+    const tabIdx = line.indexOf('\t');
+    if (tabIdx === -1) continue;
+    const secondTab = line.indexOf('\t', tabIdx + 1);
+    if (secondTab === -1) continue;
+    const text = line.slice(secondTab + 1);
+
+    const matches = text.match(regex);
+    if (!matches) continue;
+
+    const seen = new Set();
+    for (const match of matches) {
+      if (seen.has(match)) continue;
+      seen.add(match);
+      const words = termMap.get(match);
+      if (!words) continue;
+      for (const w of words) {
+        if (!examplesPerWord.has(w.id)) examplesPerWord.set(w.id, []);
+        const arr = examplesPerWord.get(w.id);
+        if (arr.length < targetCount) {
+          arr.push({ japanese: text });
+        }
+      }
+    }
+  }
+
+  // Attach examples to vocab
+  for (const w of vocab) {
+    w.examples = examplesPerWord.get(w.id) || [];
+  }
+
+  const withExamples = vocab.filter(w => w.examples.length > 0).length;
+  console.log(`  ${withExamples}/${vocab.length} words have example sentences`);
 }
 
 async function main() {
@@ -148,6 +231,13 @@ async function main() {
     perLevel[v.jlptLevel] = (perLevel[v.jlptLevel] || 0) + 1;
   }
   console.log('  Per level:', perLevel);
+
+  // Fetch example sentences
+  try {
+    await attachExamples(vocab);
+  } catch (err) {
+    console.log(`  Warning: Could not fetch examples (${err.message}), continuing without`);
+  }
 
   if (!existsSync(PUBLIC_DIR)) {
     mkdirSync(PUBLIC_DIR, { recursive: true });

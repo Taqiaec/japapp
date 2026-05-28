@@ -1,13 +1,38 @@
 {
   "name": "japapp",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:build": "npm run build && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.goichou.app",
+    "productName": "語彙帳",
+    "directories": {
+      "output": "C:\\Users\\admin\\Desktop\\AI Chat\\goichou-installer"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "installerIcon": null,
+      "uninstallerIcon": null
+    }
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.0",
@@ -21,6 +46,8 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "electron": "^42.3.0",
+    "electron-builder": "^26.8.1",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",

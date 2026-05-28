@@ -54,7 +54,10 @@ export default function StudySession({ words, onWordsUpdate }) {
     }
   }, [words, deckId, levelParam, difficultyParam]);
 
-  const dueCards = useMemo(() => getDueCards(filteredWords), [filteredWords]);
+  const dueCards = useMemo(() => {
+    if (deckId || difficultyParam) return filteredWords;
+    return getDueCards(filteredWords);
+  }, [filteredWords, deckId, difficultyParam]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [finished, setFinished] = useState(false);
   const [waitingForNext, setWaitingForNext] = useState(false);
