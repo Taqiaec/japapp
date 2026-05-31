@@ -16,13 +16,15 @@ export default function StudyMenu({ words }) {
   const { t } = useLang();
 
   const allDue = getDueCards(words);
-  const hardCards = words.filter(
-    (w) => w.status !== "new" && (w.easeFactor <= 1.5 || w.lapses >= 3)
+  const hardCards = getDueCards(
+    words.filter((w) => w.status !== "new" && (w.easeFactor <= 1.5 || w.lapses >= 3))
   );
-  const easyCards = words.filter(
-    (w) => w.status !== "new" && (w.easeFactor >= 2.3 || w.interval >= 14)
+  const easyCards = getDueCards(
+    words.filter((w) => w.status !== "new" && (w.easeFactor >= 2.3 || w.interval >= 14))
   );
-  const newCards = words.filter((w) => w.status === "new");
+  const newCards = getDueCards(
+    words.filter((w) => w.status === "new")
+  );
 
   return (
     <div className="max-w-lg mx-auto px-4 pt-8 pb-12">

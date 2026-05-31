@@ -13,7 +13,7 @@ export function getTodayString() {
 }
 
 export function calculateNextReview(card, grade) {
-  let { interval, easeFactor, reps, lapses, status } = card;
+  let { interval, easeFactor, reps, lapses } = card;
   const today = getTodayString();
 
   const oldInterval = interval;
@@ -23,30 +23,32 @@ export function calculateNextReview(card, grade) {
     interval = 1;
     lapses += 1;
     easeFactor = Math.max(1.3, easeFactor - 0.2);
-    status = "learning";
   } else if (grade === 1) {
+    interval = Math.max(1, interval);
     easeFactor = Math.max(1.3, easeFactor - 0.15);
-    status = "learning";
   } else if (grade === 2) {
     interval = Math.ceil(interval * easeFactor);
-    easeFactor = Math.min(2.5, easeFactor);
+    reps += 1;
   } else if (grade === 3) {
     interval = Math.ceil(interval * easeFactor * 1.3);
-    easeFactor = Math.min(2.5, easeFactor);
-  }
-
-  if (grade >= 2) {
     reps += 1;
-    if (interval >= 21) {
-      status = "mastered";
-    } else if (interval >= 7) {
-      status = "review";
-    } else {
-      status = "learning";
-    }
   }
 
-  easeFactor = Math.max(1.3, Math.min(2.5, easeFactor));
+  // SM-2 ease factor update: EF increases on Easy, stays on Good, decreases on Hard/Again
+  const q = grade === 0 ? 0 : grade === 1 ? 2 : grade === 2 ? 3 : 5;
+  easeFactor = easeFactor + (0.1 - (3 - q) * (0.08 + (3 - q) * 0.02));
+
+  // Status based on interval (always, not just grade >= 2)
+  let status;
+  if (interval >= 21) {
+    status = "mastered";
+  } else if (interval >= 7) {
+    status = "review";
+  } else {
+    status = "learning";
+  }
+
+  easeFactor = Math.max(1.3, Math.min(3.0, easeFactor));
 
   const dueDate = new Date(today);
   dueDate.setDate(dueDate.getDate() + interval);
