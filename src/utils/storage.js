@@ -2,6 +2,20 @@ const STORAGE_KEY = "goichou_words";
 const STREAK_KEY = "goichou_streak";
 const LAST_STUDY_KEY = "goichou_last_study";
 
+const dirtyWords = new Set();
+
+export function markDirty(id) {
+  dirtyWords.add(id);
+}
+
+export function getDirtyWordIds() {
+  return [...dirtyWords];
+}
+
+export function clearDirtyWords() {
+  dirtyWords.clear();
+}
+
 export function saveWords(words) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(words));
 }
@@ -23,6 +37,7 @@ export function updateWord(id, updates) {
   if (idx === -1) return;
   words[idx] = { ...words[idx], ...updates };
   saveWords(words);
+  markDirty(id);
 }
 
 function getTodayString() {

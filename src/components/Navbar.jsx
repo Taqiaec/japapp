@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useLang } from "../context/LanguageContext";
+import { useAuth } from "../context/AuthContext";
 
 const links = [
   { to: "/study", label: "Study" },
@@ -12,6 +14,8 @@ const links = [
 export default function Navbar() {
   const { pathname } = useLocation();
   const { lang, toggleLang } = useLang();
+  const { user, signIn, signOut } = useAuth();
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   return (
     <nav className="sticky top-0 z-50 bg-slate-800 border-b border-slate-700">
@@ -39,6 +43,43 @@ export default function Navbar() {
           >
             {lang === "en" ? "JP" : "EN"}
           </button>
+          {user ? (
+            <div className="relative ml-2">
+              <button
+                onClick={() => setShowUserMenu((v) => !v)}
+                className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-slate-700/50 transition-colors"
+              >
+                <img
+                  src={user.photoURL}
+                  alt=""
+                  className="w-7 h-7 rounded-full"
+                  referrerPolicy="no-referrer"
+                />
+              </button>
+              {showUserMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowUserMenu(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-20 bg-slate-700 rounded-lg shadow-xl py-1 min-w-40">
+                    <span className="block px-4 py-2 text-sm text-slate-300 truncate">{user.displayName || user.email}</span>
+                    <hr className="border-slate-600" />
+                    <button
+                      onClick={() => { setShowUserMenu(false); signOut(); }}
+                      className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-slate-600 transition-colors"
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={signIn}
+              className="ml-2 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-500 transition-colors"
+            >
+              Sign in
+            </button>
+          )}
         </div>
       </div>
     </nav>

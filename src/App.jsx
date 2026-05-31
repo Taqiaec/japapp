@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Outlet } from "react-router-dom";
 import { loadVocabulary } from "./utils/dataLoader";
 import { LanguageProvider } from "./context/LanguageContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 import Navbar from "./components/Navbar";
 import LoadingScreen from "./components/LoadingScreen";
 import Dashboard from "./components/Dashboard";
@@ -22,35 +23,54 @@ function Layout() {
   );
 }
 
-function App() {
+function AppInner() {
   const [words, setWords] = useState(null);
   const [loading, setLoading] = useState(true);
+  const { setWordsGetter, setWordsUpdateCallback } = useAuth();
 
   useEffect(() => {
-    loadVocabulary().then(setWords).finally(() => setLoading(false));
-  }, []);
+    loadVocabulary().then((loaded) => {
+      setWords(loaded);
+      setWordsGetter(() => loaded);
+    }).finally(() => setLoading(false));
+  }, [setWordsGetter]);
+
+  useEffect(() => {
+    setWordsUpdateCallback(() => (updated) => {
+      setWords(updated);
+    });
+  }, [setWordsUpdateCallback]);
 
   if (loading) return <LoadingScreen />;
 
   function handleWordsUpdate(updated) {
     setWords(updated);
+    setWordsGetter(() => updated);
   }
 
   return (
+    <Routes>
+      <Route element={<Layout />}>
+        <Route index element={<Dashboard words={words} />} />
+        <Route path="study" element={<StudyMenu words={words} />} />
+        <Route path="study/review" element={<StudySession words={words} onWordsUpdate={handleWordsUpdate} />} />
+        <Route path="browse" element={<VocabBrowser words={words} />} />
+        <Route path="settings" element={<Settings words={words} />} />
+        <Route path="my-words" element={<MyWords words={words} />} />
+        <Route path="decks" element={<Decks words={words} />} />
+        <Route path="debug" element={<DebugView words={words} />} />
+      </Route>
+    </Routes>
+  );
+}
+
+function App() {
+  return (
     <BrowserRouter>
       <LanguageProvider>
-      <Routes>
-        <Route element={<Layout />}>
-          <Route index element={<Dashboard words={words} />} />
-          <Route path="study" element={<StudyMenu words={words} />} />
-          <Route path="study/review" element={<StudySession words={words} onWordsUpdate={handleWordsUpdate} />} />
-          <Route path="browse" element={<VocabBrowser words={words} />} />
-          <Route path="settings" element={<Settings words={words} />} />
-          <Route path="my-words" element={<MyWords words={words} />} />
-          <Route path="decks" element={<Decks words={words} />} />
-          <Route path="debug" element={<DebugView words={words} />} />
-        </Route>
-      </Routes>
+        <AuthProvider>
+          <AppInner />
+        </AuthProvider>
       </LanguageProvider>
     </BrowserRouter>
   );
