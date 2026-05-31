@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-語彙帳 (Goi-chou) — Japanese vocabulary SRS web app. React 19 + Vite 8 + Tailwind v4. Dark theme (slate-900/800). 7,409 JLPT vocabulary words with SM-2 spaced repetition. Electron wrapper in `electron/`.
+語彙帳 (Goi-chou) — Japanese vocabulary SRS web app. React 19 + Vite 8 + Tailwind v4. Dark theme (slate-900/800). 7,409 JLPT vocabulary words with SM-2 spaced repetition. Firebase Hosting + Google Auth + Firestore sync. Electron wrapper in `electron/`.
 
 ## Commands
 
@@ -14,6 +14,7 @@ npm run build                # Production build
 npm run lint                 # ESLint
 npm run preview              # Preview production build
 node scripts/processData.mjs # Re-generate public/jlpt-vocab.json from JMdict + JLPT + Tatoeba
+firebase deploy --only hosting  # Deploy to Firebase Hosting
 ```
 
 Pipeline must run via Bash (Git Bash / MSYS2) — requires `bzip2` for Tatoeba decompression. Run if `public/jlpt-vocab.json` missing or outdated.
@@ -41,20 +42,28 @@ Pipeline must run via Bash (Git Bash / MSYS2) — requires `bzip2` for Tatoeba d
 
 Output: `public/jlpt-vocab.json` (~2MB). Word shape includes `pos` field and `examples` array.
 
-**App shell**: `App.jsx` → `BrowserRouter` → `LanguageProvider` → `Layout` (Navbar + Outlet) → Routes. Words loaded once via `loadVocabulary()`, passed as prop to all routes. `StudySession` calls `onWordsUpdate(loadWords())` only at session end.
+**App shell**: `App.jsx` → `BrowserRouter` → `LanguageProvider` → `AuthProvider` → `AppInner` → `Layout` (Navbar + Outlet) → Routes. `AuthProvider` manages Google auth state and syncs progress to Firestore on sign-out. `AppInner` connects words state to auth sync via `setWordsGetter`/`setWordsUpdateCallback`. Words loaded once via `loadVocabulary()`, passed as prop to all routes. `StudySession` calls `onWordsUpdate(loadWords())` only at session end.
 
 **Data layer** (`src/utils/`):
 - `dataLoader.js` — `loadVocabulary()`: returns localStorage cache (`goichou_words`) if present, else fetches `/jlpt-vocab.json`, merges `DEFAULT_SRS`, saves to localStorage
-- `storage.js` — localStorage CRUD: `saveWords()`, `loadWords()`, `updateWord(id, updates)`. Streak: `getStreak()`, `updateStreak()`, `getLastStudyDate()`
+- `storage.js` — localStorage CRUD: `saveWords()`, `loadWords()`, `updateWord(id, updates)`. Streak: `getStreak()`, `updateStreak()`, `getLastStudyDate()`. Dirty word tracking: `markDirty(id)`, `getDirtyWordIds()`, `clearDirtyWords()` — `updateWord` auto-marks dirty
 - `srs.js` — `DEFAULT_SRS`, `calculateNextReview(card, grade)` (SM-2), `getDueCards(allWords, limit?)`, `getMasteryProgress(word)`
 - `romaji.js` — `toRomaji(kana)`: Hepburn conversion for search
+- `sync.js` — Firestore sync: `syncToFirestore(uid, dirtyIds, allWords, decks, settings)`, `loadFromFirestore(uid)`, `mergeWords(local, remote)` — only studied words (not full 7.4K vocab)
+
+**Firebase/Firestore** (`src/firebase.js`): initializes Firebase app, exports `auth`, `db`, `googleProvider`. Config from `.env` (VITE_FIREBASE_*). Firestore schema: `users/{uid}/words/{wordId}` (SRS fields only), `users/{uid}/data/decks`, `users/{uid}/data/settings`.
+
+**Auth** (`src/context/AuthContext.jsx`): `AuthProvider` + `useAuth()` hook. Google sign-in via `signInWithPopup`. On sign-in: loads remote progress from Firestore, merges with local. On sign-out: pushes dirty words + decks + settings to Firestore. `syncNow()` for manual sync. App works offline (localStorage only) — Firestore is sync layer, not primary.
 
 **SRS algorithm** (`srs.js`):
-- Grade 0 (Again): interval=1, lapses++, easeFactor-=0.2 (min 1.3), status="learning"
-- Grade 1 (Hard): interval unchanged, easeFactor-=0.15 (min 1.3), status="learning"
-- Grade 2 (Good): interval = ceil(interval * easeFactor), status transitions: learning/review/mastered based on interval
-- Grade 3 (Easy): interval = ceil(interval * easeFactor * 1.3), same status transition
+- Grade 0 (Again): interval=1, lapses++, easeFactor-=0.2 (min 1.3)
+- Grade 1 (Hard): interval=floor at 1, easeFactor-=0.15 (min 1.3)
+- Grade 2 (Good): interval = ceil(interval * easeFactor), reps++
+- Grade 3 (Easy): interval = ceil(interval * easeFactor * 1.3), reps++
+- **EF update** (SM-2 spec): EF += 0.1 - (3-q)(0.08 + (3-q)*0.02) where q maps grade 0→0, 1→2, 2→3, 3→5. EF range: 1.3–3.0
+- **Status**: always recalc from interval (>=21 mastered, >=7 review, else learning) — not just on grade >= 2
 - Due cards sorted: learning → new → review, capped by daily limit (default 15)
+- Deck study also applies due date filter via `getDueCards`
 
 **Word shape** (in `goichou_words`):
 ```js
@@ -68,7 +77,7 @@ POS codes from JMdict (e.g. `n`, `v1`, `adj-na`, `adv`). `pos` can be empty stri
 
 ## Components
 
-- `Navbar.jsx` — Sticky top nav (Study, Browse, Decks, Settings) + JP/EN toggle via `useLang()`
+- `Navbar.jsx` — Sticky top nav. Desktop: inline links. Mobile (< md): hamburger dropdown. JP/EN toggle + user avatar/sign-in always visible. Auth via `useAuth()`
 - `Dashboard.jsx` — Counts cards learned today, streak, learning/mastered counts. CTA to `/study`
 - `Flashcard.jsx` — Flip card (CSS 3D). Front: kanji + JLPT badge. Back: reading, meaning, POS badge, Jisho link (`https://jisho.org/search/{word}`), inline example sentences from data, 4 grade buttons, "Save to Deck" dropdown. `onAnswer(0-3)` callback. Furigana setting controls reading visibility.
 - `StudyMenu.jsx` — JLPT level tiles, difficulty options, custom decks. Links to `/study/review?params`
@@ -76,7 +85,7 @@ POS codes from JMdict (e.g. `n`, `v1`, `adj-na`, `adv`). `pos` can be empty stri
 - `SessionRecap.jsx` — Post-study recap. Props: `gradeHistory`, `totalCards`. Grade counts in 4 columns, add-to-deck per grade and per word, collapsible detail view.
 - `MyWords.jsx` — Studied words browser with mastery bars, JLPT tabs, search, pagination 50/page
 - `VocabBrowser.jsx` — Full vocabulary browser with search (kanji/reading/meaning/romaji), JLPT tabs, status filter, pagination 50/page
-- `Settings.jsx` — Daily limit (5-50), furigana (always/flip/never), auto-advance toggle, reset progress. NOTE: `Section` component defined inside render.
+- `Settings.jsx` — Daily limit (5-50), furigana (always/flip/never), auto-advance toggle, reset progress, data info. NOTE: `Section` component defined inside render. Account section with user info, sync button, sign out.
 - `Decks.jsx` — Create/list/delete named decks with detail modal (word list, JLPT filter, search, sort, pagination, progress bars). Per-word: remove from deck, move/copy to another deck.
 - `LoadingScreen.jsx` — Shown during vocabulary load
 
@@ -87,6 +96,20 @@ Tailwind v4 via `@import "tailwindcss"`, `@tailwindcss/vite` plugin (no config f
 **Tailwind JIT limitation**: Dynamic class strings NOT detected by JIT scanner. Add comment safelist at top of file listing all dynamic classes.
 
 **No `lucide-react`**: Not installed. All icons must be inline SVG elements.
+
+## Firebase Deploy
+
+- `firebase.json` — hosting config, SPA rewrites to `/index.html`
+- `.firebaserc` — project ID (`goichou-3c554`)
+- `.env` — Firebase config (gitignored), `VITE_FIREBASE_*` keys
+- Auth: Google sign-in enabled in Firebase Console
+- Firestore: test mode, users/{uid}/words, users/{uid}/data/decks, users/{uid}/data/settings
+- Build + deploy: `npm run build && firebase deploy --only hosting`
+- `vite.config.js` uses `base: '/'` (absolute) for SPA routing on Firebase Hosting
+
+## Dirty Word Tracking
+
+`storage.js` tracks which words changed SRS data during a session. `updateWord()` auto-calls `markDirty(id)`. On sign-out, `AuthContext` calls `syncToFirestore()` with dirty word IDs — only changed words write to Firestore, not the full 7.4K vocab array. `clearDirtyWords()` after successful sync.
 
 ## LocalStorage Keys
 
